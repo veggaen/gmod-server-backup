@@ -1,0 +1,11 @@
+"AddonInfo"
+{
+	"name"				"Zones"
+	"version"			"1.08"
+	"up_date"			"30/09/13"
+	"author_name"		"Dellkan"
+	"author_email"		"dellkan@hotmail.com"
+	"author_url"		"http://steamcommunity.com/id/dellkan"
+	"info"				"Utility tool. Prevent NLR, spawn rape, spawn blocking. Create donator/VIP areas. Greet people as they enter a zone, and more."
+	"override"			"0"
+}

@@ -1,0 +1,10 @@
+UnlitGeneric
+{
+	"Proxies"
+	{
+		"FASCrosshairColor"
+		{
+			"resultVar"	"$color"
+		}
+	}
+}

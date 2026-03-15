@@ -1,0 +1,8 @@
+VertexLitGeneric
+{
+	"$baseTexture" "models\weapons\view\rifles\sks\sks_k_rail.vtf"
+	"$phong" "1"
+	"$phongexponent""10"
+	"$phongboost" "0.5"
+	"$phongfresnelranges""[1.0 2.5 10.5]"//"[0.1 0.4 .8]"
+}

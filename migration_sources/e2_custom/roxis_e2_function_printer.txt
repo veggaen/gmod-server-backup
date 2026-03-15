@@ -1,0 +1,12 @@
+e2function number entity:getPrinted()
+	if not IsValid(this) then 
+		return 0 
+	end
+	if this:GetClass("normal_money_printer", "gold_money_printer", "ruby_money_printer", "nuclear_money_printer")then  
+		return this:GetNWInt("PrintA") 
+	else 
+		return 0 
+	end
+end
+
+//--made by v3gga

@@ -1,0 +1,6 @@
+"UnlitGeneric"
+{
+	"$baseTexture" "models\weapons\v_models\accessories\reticle_black"
+	"$model" "1"
+	"$translucent" "1"
+}

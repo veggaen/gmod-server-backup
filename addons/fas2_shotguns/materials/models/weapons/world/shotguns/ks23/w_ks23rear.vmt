@@ -1,0 +1,17 @@
+VertexLitGeneric
+{
+	"$baseTexture" "models\weapons\world\shotguns\ks23\w_ks23rear.vtf"
+	//"$bumpmap" "models\weapons\world\shotguns\ks23\w_ks23rear_normal.vtf"
+	"$envmap" "env_cubemap"
+	"$envmaptint" "[.1 .1 .1]"
+	"$basealphaenvmapmask"		"1"
+	"$basemapalphaphongmask" 	"1"
+	//"$phongexponenttexture" "models/albedotint"
+	"$phong" 			"1"
+	"$phongexponent"		"20"
+	"$phongboost" 			"1"
+	"$phongfresnelranges"		"[0.5 1.5 3.0]"//"[1.0 2.5 10.5]"
+	$phongdisablehalflambert 1
+	$halflambert 0
+	$PhongAlbedoTint 1
+}

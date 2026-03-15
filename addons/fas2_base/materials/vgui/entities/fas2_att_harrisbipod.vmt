@@ -1,0 +1,7 @@
+"UnlitGeneric"
+{
+	"$basetexture" "VGUI/fas2atts/harrisbipod"
+	"$nolod" 1
+	"$vertexalpha" 1
+	"$vertexcolor" 1
+}

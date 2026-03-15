@@ -1,0 +1,66 @@
+# Local editor and repo metadata
+.vscode/
+.idea/
+
+# Runtime cache and crash output
+cache/
+serverfiles/*.mdmp
+serverfiles/logs/
+serverfiles/appcache/
+serverfiles/depotcache/
+serverfiles/platform/
+serverfiles/sourceengine/
+serverfiles/steam_cache/
+serverfiles/steamapps/
+serverfiles/userdata/
+
+# Dedicated server binaries and bundled platform files
+serverfiles/bin/
+serverfiles/config/
+serverfiles/steam_appid.txt
+serverfiles/ThirdPartyLegalNotices.txt
+
+# Garry's Mod runtime/generated content
+serverfiles/garrysmod/backgrounds/
+serverfiles/garrysmod/bin/
+serverfiles/garrysmod/cache/
+serverfiles/garrysmod/cfg/
+serverfiles/garrysmod/data/
+serverfiles/garrysmod/download/
+serverfiles/garrysmod/downloadlists/
+serverfiles/garrysmod/fallbacks/
+serverfiles/garrysmod/fallbacks_*.vpk
+serverfiles/garrysmod/*.vpk
+serverfiles/garrysmod/html/
+serverfiles/garrysmod/maps/
+serverfiles/garrysmod/modelsounds.cache
+serverfiles/garrysmod/particles/
+serverfiles/garrysmod/resource/
+serverfiles/garrysmod/scenes/
+serverfiles/garrysmod/settings/
+serverfiles/garrysmod/stats.txt
+serverfiles/garrysmod/sv.db
+serverfiles/garrysmod/clientside_errors.txt
+
+# Migration and workshop backups are archival data, not source
+serverfiles/garrysmod/migration_backups/
+serverfiles/garrysmod/addons_disabled_workshop_dupes/
+
+# Ignore live server addons by default, then allow the custom ones we actively edit
+serverfiles/garrysmod/addons/*
+!serverfiles/garrysmod/addons/custom-ulx-commands/
+!serverfiles/garrysmod/addons/custom-ulx-commands/**
+!serverfiles/garrysmod/addons/darkrpmodification/
+!serverfiles/garrysmod/addons/darkrpmodification/**
+!serverfiles/garrysmod/addons/modernrp_ui/
+!serverfiles/garrysmod/addons/modernrp_ui/**
+!serverfiles/garrysmod/addons/oldgold_progression/
+!serverfiles/garrysmod/addons/oldgold_progression/**
+!serverfiles/garrysmod/addons/wiremod-extras/
+serverfiles/garrysmod/addons/wiremod-extras/*
+!serverfiles/garrysmod/addons/wiremod-extras/lua/
+!serverfiles/garrysmod/addons/wiremod-extras/lua/entities/
+!serverfiles/garrysmod/addons/wiremod-extras/lua/entities/gmod_wire_expression2/
+!serverfiles/garrysmod/addons/wiremod-extras/lua/entities/gmod_wire_expression2/core/
+!serverfiles/garrysmod/addons/wiremod-extras/lua/entities/gmod_wire_expression2/core/custom/
+!serverfiles/garrysmod/addons/wiremod-extras/lua/entities/gmod_wire_expression2/core/custom/legacy_darkrp.lua

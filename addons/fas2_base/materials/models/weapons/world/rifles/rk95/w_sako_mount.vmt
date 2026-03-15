@@ -1,0 +1,17 @@
+VertexLitGeneric
+{
+	"$baseTexture" "models\weapons\world\rifles\rk95\w_sako_mount.vtf"
+	//"$bumpmap" "models\weapons\world\rifles\rk95\w_sako_mount_normal.vtf"
+	"$envmap" "env_cubemap"
+	"$envmaptint" "[.1 .1 .1]"
+	"$basealphaenvmapmask"		"1"
+	"$basemapalphaphongmask" 	"1"
+	//"$phongexponenttexture" "models/albedotint"
+	"$phong" 			"1"
+	"$phongexponent"		"15"
+	"$phongboost" 			"2"
+	"$phongfresnelranges"		"[0.25 1.0 2.0]"//"[1.0 2.5 10.5]"
+	$phongdisablehalflambert 1
+	$halflambert 0
+	$PhongAlbedoTint 1
+}

@@ -1,0 +1,85 @@
+/**********************************************************************
+e2function number entity:isShipmentName()
+	if not IsValid(this) then return 0 end
+	if this:IsShipmentName() then return 1 else return 0 end
+end
+/**********************************************************************
+e2function number entity:getPrinted()
+	if not IsValid(this) then 
+		return 0 
+	end
+	if this:GetClass("normal_money_printer", "gold_money_printer", "ruby_money_printer", "nuclear_money_printer")then  
+		return this:GetNWInt("PrintA") 
+	else 
+		return 0 
+	end
+end
+
+//--made by v3gga
+
+
+local registered_chips = {}
+local dmgrun = 0
+local damageData = nil
+local damagedEnt = nil
+
+
+registerCallback("destruct",function(self)
+	registered_chips[self.entity] = nil
+end)
+
+__e2setcost(1)
+
+
+e2function void runOnDamage(activate)
+    if activate ~= 0 then
+        registered_chips[self.entity] = true
+    else
+		registered_chips[self.entity] = nil
+    end
+end
+
+e2function number dmgClk()
+	return dmgrun
+end
+
+e2function number entity:getDamage()
+if damagedEnt ~= this then return 0 end
+return damageData:GetDamage()
+end
+
+e2function entity entity:getAttacker()
+if damagedEnt ~= this then return nil end
+return damageData:GetAttacker()
+end
+
+
+e2function entity entity:getInflictor()
+if damagedEnt ~= this then return nil end
+return damageData:GetInflictor()
+end
+
+
+
+local function DamageClock(ent, inflictor, attacker, amount, dmginfo)
+	local ents = {}
+	
+	-- this additional step is needed because we cant modify registered_chips while it is being iterated.
+	for entity,_ in pairs(registered_chips) do
+		if entity:IsValid() then table.insert(ents, entity) end
+	end
+	
+	dmgrun = 1
+	damagedEnt = ent
+    damageData = dmginfo
+	for _,entity in ipairs(ents) do
+		entity:Execute()
+	end
+	dmgrun = 0	
+    damagedEnt = nil
+    damageData = nil
+end
+
+hook.Add("EntityTakeDamage", "DamageClock", DamageClock)
+
+__e2setcost(nil)

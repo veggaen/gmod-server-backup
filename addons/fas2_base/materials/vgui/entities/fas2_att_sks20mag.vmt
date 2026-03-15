@@ -1,0 +1,7 @@
+"UnlitGeneric"
+{
+	"$basetexture" "VGUI/fas2atts/sks20mag"
+	"$nolod" 1
+	"$vertexalpha" 1
+	"$vertexcolor" 1
+}

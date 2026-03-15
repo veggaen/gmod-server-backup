@@ -1,0 +1,9 @@
+VertexLitGeneric
+{
+	"$baseTexture" "models\weapons\view\rifles\sks\sks_stock.vtf"
+	"$bumpmap" "models\weapons\view\rifles\sks\sks_stock_normal.vtf"
+	"$phong" "1"
+	"$phongexponent""10"
+	"$phongboost" "0.1"
+	"$phongfresnelranges""[1.0 2.5 10.5]"//"[0.1 0.4 .8]"
+}
