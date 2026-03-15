@@ -17,6 +17,8 @@ serverfiles/userdata/
 # Dedicated server binaries and bundled platform files
 serverfiles/bin/
 serverfiles/config/
+serverfiles/*.dll
+serverfiles/*.exe
 serverfiles/steam_appid.txt
 serverfiles/ThirdPartyLegalNotices.txt
 
@@ -31,13 +33,21 @@ serverfiles/garrysmod/downloadlists/
 serverfiles/garrysmod/fallbacks/
 serverfiles/garrysmod/fallbacks_*.vpk
 serverfiles/garrysmod/*.vpk
+serverfiles/garrysmod/GameState.txt
+serverfiles/garrysmod/gameinfo.txt
+serverfiles/garrysmod/garrysmod.ver
 serverfiles/garrysmod/html/
+serverfiles/garrysmod/lights.rad
+serverfiles/garrysmod/lua/
 serverfiles/garrysmod/maps/
 serverfiles/garrysmod/modelsounds.cache
 serverfiles/garrysmod/particles/
 serverfiles/garrysmod/resource/
+serverfiles/garrysmod/gamemodes/
 serverfiles/garrysmod/scenes/
 serverfiles/garrysmod/settings/
+serverfiles/garrysmod/detail.vbsp
+serverfiles/garrysmod/steam.inf
 serverfiles/garrysmod/stats.txt
 serverfiles/garrysmod/sv.db
 serverfiles/garrysmod/clientside_errors.txt
@@ -57,7 +67,7 @@ serverfiles/garrysmod/addons/*
 !serverfiles/garrysmod/addons/oldgold_progression/
 !serverfiles/garrysmod/addons/oldgold_progression/**
 !serverfiles/garrysmod/addons/wiremod-extras/
-serverfiles/garrysmod/addons/wiremod-extras/*
+serverfiles/garrysmod/addons/wiremod-extras/**
 !serverfiles/garrysmod/addons/wiremod-extras/lua/
 !serverfiles/garrysmod/addons/wiremod-extras/lua/entities/
 !serverfiles/garrysmod/addons/wiremod-extras/lua/entities/gmod_wire_expression2/
