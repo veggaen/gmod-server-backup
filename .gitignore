@@ -4,6 +4,7 @@
 
 # Runtime cache and crash output
 cache/
+tools/
 serverfiles/*.mdmp
 serverfiles/logs/
 serverfiles/appcache/
