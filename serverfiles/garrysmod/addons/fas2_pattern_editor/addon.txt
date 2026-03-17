@@ -1,0 +1,8 @@
+"AddonInfo"
+{
+    "name" "FAS2 Pattern Editor"
+    "version" "1.0.0"
+    "up_date" "2026-03-15"
+    "author_name" "v3gga"
+    "info" "In-game recoil pattern painter and runtime override for FA:S 2 weapons."
+}

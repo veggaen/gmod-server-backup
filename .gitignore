@@ -67,6 +67,8 @@ serverfiles/garrysmod/addons/*
 !serverfiles/garrysmod/addons/modernrp_ui/**
 !serverfiles/garrysmod/addons/oldgold_progression/
 !serverfiles/garrysmod/addons/oldgold_progression/**
+!serverfiles/garrysmod/addons/fas2_pattern_editor/
+!serverfiles/garrysmod/addons/fas2_pattern_editor/**
 !serverfiles/garrysmod/addons/wiremod-extras/
 serverfiles/garrysmod/addons/wiremod-extras/**
 !serverfiles/garrysmod/addons/wiremod-extras/lua/
