@@ -9,9 +9,21 @@ EDITOR.Patterns = EDITOR.Patterns or {}
 EDITOR.ActivePainters = EDITOR.ActivePainters or {}
 EDITOR.DataDir = "fas2_pattern_editor"
 EDITOR.DataFile = EDITOR.DataDir .. "/patterns.json"
+EDITOR.EditorVersion = "professional-v3-ads-guide"
+EDITOR.RecommendedCalibrationUnits = 984
+EDITOR.MinCalibrationUnits = 590
+EDITOR.MaxCalibrationUnits = 2362
 EDITOR.CommandAliases = {
     ["!faspattern"] = true,
+    ["!fas"] = true,
+    ["!faspat"] = true,
+    ["!pattern"] = true,
+    ["!spray"] = true,
     ["/faspattern"] = true,
+    ["/fas"] = true,
+    ["/faspat"] = true,
+    ["/pattern"] = true,
+    ["/spray"] = true,
     ["!fasrecalibrate"] = true,
     ["/fasrecalibrate"] = true,
     ["!faspatterneditor"] = true,
@@ -183,9 +195,10 @@ function EDITOR.DrawFollowRecoilDot(weapon)
     -- Use the native PatternIndex to detect if we're actively spraying.
     -- The native system tracks this via AdvanceSpray / CalcView.
     local patIdx = weapon.PatternIndex or 0
+    local sprayProgress = weapon.GetSprayProgress and weapon:GetSprayProgress(CurTime()) or (weapon.SprayProgress or patIdx)
     local lastFireTime = weapon.LastFireTime or 0
-    local resetTime = weapon.SprayResetTime or 0.35
     local timeSinceFire = CurTime() - lastFireTime
+    local recoveryDelay = weapon.GetSprayRecoveryDelay and weapon:GetSprayRecoveryDelay() or 0.085
 
     -- Also check the weapon's custom spring state for bounce residue.
     local punchAng = weapon._punchAng or Angle(0, 0, 0)
@@ -200,30 +213,36 @@ function EDITOR.DrawFollowRecoilDot(weapon)
 
     -- Hide dot when it has fully settled back to center.
     local dotMag = math.abs(dotSmoothP) + math.abs(dotSmoothY)
-    if patIdx < 1 and timeSinceFire > resetTime and punchMag < 0.01 and dotMag < 0.01 then
+    if sprayProgress <= 0.001 and timeSinceFire > (weapon.GetSprayFullResetTime and weapon:GetSprayFullResetTime() or 0.52) and punchMag < 0.01 and dotMag < 0.01 then
         weapon._dotSmoothP = 0
         weapon._dotSmoothY = 0
         return
     end
 
-    local isSpraying = patIdx >= 1 and timeSinceFire <= resetTime
+    local isRecovering = sprayProgress > 0.001
+    local isSpraying = isRecovering and timeSinceFire <= recoveryDelay
     local FT = FrameTime()
 
     -- Target position for the dot.
     local targetP, targetY = 0, 0
     if isSpraying then
         -- Active spray: dot leads to next bullet position
-        local nextIdx = patIdx + 1
+        local nextIdx = weapon.GetNextSprayIndex and weapon:GetNextSprayIndex(sprayProgress) or (patIdx + 1)
         local isADS = weapon.dt and weapon.dt.Status == FAS_STAT_ADS
         if weapon.GetSprayOffset then
             targetP, targetY = weapon:GetSprayOffset(nextIdx, isADS)
+        end
+    elseif isRecovering then
+        local isADS = weapon.dt and weapon.dt.Status == FAS_STAT_ADS
+        if weapon.GetSprayOffset then
+            targetP, targetY = weapon:GetSprayOffset(sprayProgress, isADS)
         end
     end
     -- Recovery: targetP/Y stays 0, dot drifts back slowly.
 
     -- Lerp speed: fast to follow spray (30), slow to recover (3).
     -- Camera uses 30/8 — dot uses 30/3, so dot trails behind camera on reset.
-    local lerpSpeed = isSpraying and 30 or 3
+    local lerpSpeed = isSpraying and 30 or (isRecovering and 8 or 3)
     dotSmoothP = Lerp(FT * lerpSpeed, dotSmoothP, targetP)
     dotSmoothY = Lerp(FT * lerpSpeed, dotSmoothY, targetY)
 
@@ -269,7 +288,12 @@ function EDITOR.GetPattern(weaponOrClass)
         return nil
     end
 
-    return EDITOR.Patterns[className]
+    local pattern = EDITOR.Patterns[className]
+    if FAS2_CS2SprayResetLock and pattern and not EDITOR.IsTrustedNativePattern(pattern) then
+        return nil
+    end
+
+    return pattern
 end
 
 function EDITOR.SerializePatterns()
@@ -512,8 +536,90 @@ function EDITOR.LoadPatternsFromJSON(jsonText)
         end
     end
 
+    local previous = EDITOR.Patterns or {}
     EDITOR.Patterns = decoded
+    if FAS2_InstallCS2SprayReset then
+        for className in pairs(previous) do
+            if decoded[className] == nil then
+                FAS2_InstallCS2SprayReset(false, className)
+            end
+        end
+    end
     EDITOR.InstallNativeSprayPatterns()
+end
+
+function EDITOR.IsTrustedNativePattern(pattern)
+    local meta = type(pattern) == "table" and pattern.meta or nil
+    return type(meta) == "table" and meta.editorVersion == EDITOR.EditorVersion
+end
+
+function EDITOR.InstallNativePattern(className, pattern, force)
+    if not className or className == "" then
+        return false
+    end
+
+    if type(pattern) ~= "table" or type(pattern.points) ~= "table" or #pattern.points <= 0 then
+        return false
+    end
+
+    if FAS2_CS2SprayResetLock and not force and not EDITOR.IsTrustedNativePattern(pattern) then
+        return false
+    end
+
+    if not FAS2_SprayPatterns then
+        FAS2_SprayPatterns = {}
+    end
+
+    -- GetSprayOffset multiplies by RecoilScale, so divide it out here
+    -- so the final offset matches our recorded angles exactly.
+    local recoilScale = FAS2_RecoilScale and FAS2_RecoilScale[className] or 1
+    if recoilScale == 0 then recoilScale = 1 end
+    local invScale = 1 / recoilScale
+
+    -- Optional sign flip when a legacy pattern was recorded with the
+    -- opposite pitch convention from FA:S base.
+    local pitchSign = (FAS2_PatternInvertPitch and FAS2_PatternInvertPitch[className]) and -1 or 1
+
+    local nativePat = {}
+    for i, point in ipairs(pattern.points) do
+        nativePat[i] = {
+            (tonumber(point.p) or 0) * invScale * pitchSign,
+            (tonumber(point.y) or 0) * invScale,
+        }
+    end
+
+    FAS2_SprayPatterns[className] = nativePat
+
+    local resetDelay = nil
+    if pattern.meta and tonumber(pattern.meta.resetDelay) then
+        resetDelay = math.max(tonumber(pattern.meta.resetDelay), 0.1)
+    else
+        local weaponDef = weapons.GetStored(className)
+        local fireDelay = weaponDef and tonumber(weaponDef.FireDelay) or 0.1
+        resetDelay = math.max(fireDelay * 2.6, 0.18)
+    end
+
+    if not FAS2_SprayResetTime then
+        FAS2_SprayResetTime = {}
+    end
+    FAS2_SprayResetTime[className] = resetDelay
+
+    local stored = weapons.GetStored(className)
+    if stored then
+        stored.SprayPattern = nativePat
+        stored.SprayResetTime = resetDelay
+    end
+
+    for _, ply in ipairs(player.GetAll()) do
+        local weapon = ply:GetActiveWeapon()
+        if IsValid(weapon) and getWeaponClass(weapon) == className then
+            weapon.SprayPattern = nativePat
+            weapon.SprayResetTime = resetDelay
+            weapon._sprayDataLoaded = nil
+        end
+    end
+
+    return true
 end
 
 -- Convert pattern editor patterns into the native FAS2_SprayPatterns format
@@ -525,48 +631,7 @@ function EDITOR.InstallNativeSprayPatterns()
     end
 
     for className, pattern in pairs(EDITOR.Patterns) do
-        if type(pattern) == "table" and type(pattern.points) == "table" and #pattern.points > 0 then
-            -- GetSprayOffset multiplies by RecoilScale, so divide it out here
-            -- so the final offset matches our recorded angles exactly.
-            local recoilScale = FAS2_RecoilScale and FAS2_RecoilScale[className] or 1
-            if recoilScale == 0 then recoilScale = 1 end
-            local invScale = 1 / recoilScale
-
-            local nativePat = {}
-            for i, point in ipairs(pattern.points) do
-                nativePat[i] = {
-                    (tonumber(point.p) or 0) * invScale,
-                    (tonumber(point.y) or 0) * invScale,
-                }
-            end
-
-            FAS2_SprayPatterns[className] = nativePat
-
-            -- Sync SprayResetTime so AdvanceSpray resets at the same delay
-            -- as the pattern editor expects.
-            local resetDelay = nil
-            if pattern.meta and tonumber(pattern.meta.resetDelay) then
-                resetDelay = math.max(tonumber(pattern.meta.resetDelay), 0.1)
-            else
-                local weaponDef = weapons.GetStored(className)
-                local fireDelay = weaponDef and tonumber(weaponDef.FireDelay) or 0.1
-                resetDelay = math.max(fireDelay * 2.6, 0.18)
-            end
-
-            if not FAS2_SprayResetTime then
-                FAS2_SprayResetTime = {}
-            end
-            FAS2_SprayResetTime[className] = resetDelay
-        end
-    end
-
-    -- Force existing weapon instances to re-read from FAS2_SprayPatterns
-    -- on their next shot (EnsureSprayData checks _sprayDataLoaded).
-    for _, ply in ipairs(player.GetAll()) do
-        local weapon = ply:GetActiveWeapon()
-        if IsValid(weapon) and EDITOR.Patterns[getWeaponClass(weapon)] then
-            weapon._sprayDataLoaded = nil
-        end
+        EDITOR.InstallNativePattern(className, pattern, false)
     end
 end
 
@@ -712,7 +777,8 @@ function EDITOR.GetSweetSpotData(weapon)
     end
 
     local pattern = EDITOR.GetPattern(weapon)
-    local baseDistanceUnits = tonumber(pattern and pattern.meta and pattern.meta.wallDistance) or 0
+    local meta = pattern and pattern.meta or nil
+    local baseDistanceUnits = tonumber(meta and (meta.sweetSpotDistance or meta.wallDistance)) or 0
     if baseDistanceUnits <= 0 then
         weapon.FAS2SweetSpotCache = nil
         return nil
@@ -801,31 +867,11 @@ function EDITOR.GetStepDelta(weapon, pattern)
 end
 
 function EDITOR.ShouldUseCustomRecoil(weapon)
-    if not IsValid(weapon) or not EDITOR.IsSupportedWeapon(weapon) then
-        return false
-    end
-
-    local owner = weapon.Owner or weapon:GetOwner()
-    if not IsValid(owner) then
-        return false
-    end
-
-    if CLIENT and owner ~= LocalPlayer() then
-        return false
-    end
-
-    if SERVER then
-        local steamId64 = owner.SteamID64 and owner:SteamID64() or nil
-        if steamId64 and EDITOR.ActivePainters[steamId64] then
-            return EDITOR.ActivePainters[steamId64].phase == "test"
-        end
-    end
-
-    if CLIENT and EDITOR.ClientState and EDITOR.ClientState.active then
-        return EDITOR.ClientState.testMode == true and EDITOR.ClientState.pendingPayload ~= nil
-    end
-
-    return EDITOR.GetPattern(weapon) ~= nil
+    -- Legacy playback manually pushed view angles and could drift out of sync
+    -- with the real FA:S bullet path. Editor patterns now install into the
+    -- native FAS2_SprayPatterns table, so test/save uses the exact same path
+    -- as normal gameplay.
+    return false
 end
 
 function EDITOR.ShouldUseLaserCalibration(weapon)
@@ -1170,7 +1216,8 @@ function EDITOR.PatchFAS2Base()
                 pattern = pattern or EDITOR.GetPattern(self)
 
                 local delta = EDITOR.GetStepDelta(self, pattern)
-                if delta then
+                local isADS = self.dt and self.dt.Status == FAS_STAT_ADS
+                if delta and not isADS then
                     local shotCount = self.FAS2PatternShotCount or 0
                     if shotCount <= 1 then
                         self.FAS2PatternBaseAngles = Angle(owner:EyeAngles().p, owner:EyeAngles().y, 0)
@@ -1190,7 +1237,9 @@ function EDITOR.PatchFAS2Base()
 
                 -- Zero PunchAngle so originalFireBullet fires at exactly
                 -- EyeAngles (no stale ViewPunch residue corrupting aim).
-                if owner.SetPunchAngle then
+                -- Skipped in ADS so iron-sight feel isn't disturbed by
+                -- the test pass; in ADS the user just confirms feel.
+                if not isADS and owner.SetPunchAngle then
                     owner:SetPunchAngle(Angle(0, 0, 0))
                 end
                 return originalFireBullet(self, ...)
@@ -1419,8 +1468,11 @@ if SERVER then
 
         payload.savedAt = os.date("%Y-%m-%d %H:%M:%S")
         payload.savedBy = IsValid(player) and player:Nick() or "server"
+        payload.meta = type(payload.meta) == "table" and payload.meta or {}
+        payload.meta.editorVersion = EDITOR.EditorVersion
 
         EDITOR.Patterns[payload.weaponClass] = payload
+        EDITOR.InstallNativePattern(payload.weaponClass, payload, true)
         savePatterns()
         syncPatterns()
 
@@ -1434,6 +1486,9 @@ if SERVER then
         end
 
         local weapon = IsValid(session.weaponEntity) and session.weaponEntity or (IsValid(player) and player:GetActiveWeapon() or nil)
+        if IsValid(weapon) and session.originalFireMode and weapon.SelectFiremode then
+            weapon:SelectFiremode(session.originalFireMode)
+        end
         if IsValid(weapon) and session.originalPenetrationEnabled ~= nil then
             weapon.PenetrationEnabled = session.originalPenetrationEnabled
         end
@@ -1460,12 +1515,26 @@ if SERVER then
             return
         end
 
+        local originalFireMode = weapon.FireMode
+        local switchedToSemi = false
+        if weapon.SelectFiremode and type(weapon.FireModes) == "table" then
+            for _, mode in ipairs(weapon.FireModes) do
+                if mode == "semi" and weapon.FireMode ~= "semi" then
+                    weapon:SelectFiremode("semi")
+                    switchedToSemi = true
+                    break
+                end
+            end
+        end
+
         EDITOR.ActivePainters[player:SteamID64()] = {
             weaponClass = getWeaponClass(weapon),
             phase = "capture",
             shotCount = 0,
             maxShots = totalShots,
             weaponEntity = weapon,
+            originalFireMode = originalFireMode,
+            switchedToSemi = switchedToSemi,
             originalPenetrationEnabled = weapon.PenetrationEnabled,
             originalRicochetEnabled = weapon.RicochetEnabled,
             lastCommandNumber = nil,
@@ -1488,7 +1557,14 @@ if SERVER then
         player:ChatPrint(string.format("[FAS2 Editor] Calibration loaded %d rounds%s.", totalShots, weapon.CantChamber and "" or " including +1 in chamber"))
         player:ChatPrint("[FAS2 Editor] Move to the wall distance you want, then fire shot 1 to start calibration.")
         player:ChatPrint("[FAS2 Editor] After shot 1, stay still and fire one round at a time until the mag is empty. Moving resets and refills the capture.")
-        player:ChatPrint("[FAS2 Editor] R restarts and refills. ESC exits. Reload is blocked during capture.")
+        if switchedToSemi then
+            player:ChatPrint("[FAS2 Editor] Switched to semi-auto for clean one-shot capture. Comma still cycles firemode if you need it.")
+        else
+            player:ChatPrint("[FAS2 Editor] Use comma to cycle firemode if this weapon can shoot more than one round per tap.")
+        end
+        local scalePitch = tonumber(FAS2_CS2PatternScalePitch) or 1
+        local scaleYaw = tonumber(FAS2_CS2PatternScaleYaw) or scalePitch
+        player:ChatPrint(string.format("[FAS2 Editor] F5 test/retest, F6 save/review, F7 redo, F8 reset tuned default, F9 refill, ESC exits. Defaults: %.1fx pitch / %.1fx yaw.", scalePitch, scaleYaw))
     end
 
     local function exitPaintMode(player)
@@ -1558,18 +1634,19 @@ if SERVER then
 
         session.lastCommandNumber = commandNumber or session.lastCommandNumber
 
-        -- During calibration OR test: force bullet to go along the exact aim line we are validating.
-        -- Calibration: player draws pattern with raw eye angles.
-        -- Test: FA:S 2 shoots with EyeAngles + PunchAngle, so mirror that exactly.
-        if session.phase == "capture" or session.phase == "test" then
+        local modifiedBullet = false
+
+        -- During calibration: force bullet to go along the exact raw aim
+        -- line. During test, do not override anything; the pending pattern is
+        -- installed into native FAS2_SprayPatterns so this records the real
+        -- gameplay path.
+        if session.phase == "capture" then
             local aimAngles = entity:EyeAngles()
-            if session.phase == "test" and IsValid(weapon) and isangle(weapon.FAS2PatternTargetAngles) then
-                aimAngles = weapon.FAS2PatternTargetAngles
-            end
 
             bulletData.Dir = aimAngles:Forward()
             bulletData.Spread = vector_origin
             bulletData.Num = 1
+            modifiedBullet = true
         end
 
         session.shotCount = math.min((session.shotCount or 0) + 1, session.maxShots or 255)
@@ -1597,6 +1674,19 @@ if SERVER then
             filter = entity,
             mask = MASK_SHOT,
         })
+        local hitDistance = startPos:Distance(trace.Hit and trace.HitPos or (startPos + direction * 120000))
+
+        if session.phase == "capture" and session.shotCount == 1 then
+            if hitDistance < EDITOR.MinCalibrationUnits or hitDistance > EDITOR.MaxCalibrationUnits then
+                session.shotCount = 0
+                session.lastCommandNumber = nil
+                session.captureOriginPos = nil
+                session.captureOriginEyeAngles = nil
+                refillPaintWeapon(entity, weapon, session.maxShots)
+                entity:ChatPrint(string.format("[FAS2 Editor] Use a flat wall around 20-35m. Current aim is %.1fm, so shot 1 was ignored.", EDITOR.UnitsToMeters(hitDistance)))
+                return modifiedBullet or nil
+            end
+        end
 
         net.Start("FAS2PatternEditor.RecordShot")
         net.WriteVector(startPos)
@@ -1612,14 +1702,15 @@ if SERVER then
             session.phase = "review"
         end
 
-        -- Return true to apply the modified bulletData (important for calibration direction override)
-        return true
+        -- Return true only when calibration changed bulletData.
+        return modifiedBullet or nil
     end)
 
     hook.Add("PlayerSay", "FAS2PatternEditor.ChatCommands", function(player, text)
         local commandText = string.lower(string.Trim(text or ""))
         local words = splitWords(commandText)
         local command = words[1] or ""
+            local subcommand = words[2] or ""
 
         if command == "!fasseed" or command == "/fasseed" then
             seedActiveWeapon(player, words[2], tonumber(words[3] or ""))
@@ -1642,6 +1733,35 @@ if SERVER then
 
         if not EDITOR.CommandAliases[command] then
             return
+        end
+
+        if subcommand == "reset" or subcommand == "default" or subcommand == "clear" then
+            if not canEditPatterns(player) then
+                player:ChatPrint("[FAS2 Editor] Admin access required.")
+                return ""
+            end
+
+            local weapon = player:GetActiveWeapon()
+            if not EDITOR.IsSupportedWeapon(weapon) then
+                player:ChatPrint("[FAS2 Editor] Equip a FA:S 2 weapon first.")
+                return ""
+            end
+
+            local className = getWeaponClass(weapon)
+            if not className or className == "" then
+                player:ChatPrint("[FAS2 Editor] Could not resolve the active weapon class.")
+                return ""
+            end
+
+            EDITOR.Patterns[className] = nil
+            if FAS2_InstallCS2SprayReset then
+                FAS2_InstallCS2SprayReset(false, className)
+            end
+            savePatterns()
+            syncPatterns()
+            exitPaintMode(player)
+            player:ChatPrint("[FAS2 Editor] Reset pattern to default for " .. className)
+            return ""
         end
 
         beginPaintMode(player)
@@ -1746,16 +1866,27 @@ if SERVER then
         end
 
         payload.weaponClass = weaponClass
+        payload.meta = type(payload.meta) == "table" and payload.meta or {}
+        payload.meta.editorVersion = EDITOR.EditorVersion
+        if not tonumber(payload.meta.sweetSpotDistance) then
+            local weapon = player:GetActiveWeapon()
+            payload.meta.sweetSpotDistance = IsValid(weapon) and tonumber(weapon.EffectiveRange) or tonumber(payload.meta.wallDistance) or 0
+        end
         payload.savedAt = os.date("%Y-%m-%d %H:%M:%S")
         payload.savedBy = IsValid(player) and player:Nick() or "server"
 
         EDITOR.Patterns[weaponClass] = payload
+        EDITOR.InstallNativePattern(weaponClass, payload, true)
         savePatterns()
         syncPatterns()
 
         if IsValid(player) then
             player:ChatPrint("[FAS2 Editor] Saved pattern for " .. weaponClass)
         end
+
+        -- Tap: lets the ballistics extension (or any other) auto-prompt
+        -- after a successful pattern save. Safe no-op when no listeners.
+        hook.Run("FAS2PatternEditor.PostSave", player, weaponClass)
     end)
 
     net.Receive("FAS2PatternEditor.Clear", function(_, player)
@@ -1769,6 +1900,9 @@ if SERVER then
         end
 
         EDITOR.Patterns[weaponClass] = nil
+        if FAS2_InstallCS2SprayReset then
+            FAS2_InstallCS2SprayReset(false, weaponClass)
+        end
         savePatterns()
         syncPatterns()
     end)
@@ -1835,6 +1969,9 @@ if SERVER then
         end
 
         payload.weaponClass = weaponClass
+        payload.meta = type(payload.meta) == "table" and payload.meta or {}
+        payload.meta.editorVersion = EDITOR.EditorVersion
+        EDITOR.InstallNativePattern(weaponClass, payload, true)
         session.phase = "countdown"
         session.testPayload = payload
         session.shotCount = 0
@@ -1925,7 +2062,8 @@ local KEYBINDS = {
     test = { label = "F5", keys = { KEY_F5 } },
     confirm = { label = "F6", keys = { KEY_F6 } },
     restart = { label = "F7", keys = { KEY_F7 } },
-    reset = { label = "DELETE", keys = { KEY_DELETE } },
+    reset = { label = "F8", keys = { KEY_F8, KEY_DELETE } },
+    refill = { label = "F9", keys = { KEY_F9, KEY_R } },
     exit = { label = "ESC", keys = { KEY_ESCAPE } },
 }
 
@@ -2024,6 +2162,29 @@ local function getCurrentAimWallDistance(localPlayer)
     end
 
     return startPos:Distance(trace.HitPos), true
+end
+
+local function getRangeQuality(distanceUnits)
+    distanceUnits = tonumber(distanceUnits) or 0
+    if distanceUnits <= 0 then
+        return "NO WALL", Color(255, 180, 80)
+    end
+
+    local meters = EDITOR.UnitsToMeters(distanceUnits)
+    if distanceUnits < EDITOR.MinCalibrationUnits then
+        return string.format("TOO CLOSE %.1fm", meters), Color(255, 180, 80)
+    end
+
+    if distanceUnits > EDITOR.MaxCalibrationUnits then
+        return string.format("TOO FAR %.1fm", meters), Color(255, 120, 120)
+    end
+
+    local delta = math.abs(distanceUnits - EDITOR.RecommendedCalibrationUnits)
+    if delta <= 236 then
+        return string.format("GOOD %.1fm", meters), Color(80, 255, 120)
+    end
+
+    return string.format("OK %.1fm", meters), Color(120, 200, 255)
 end
 
 local function cancelCalibrationForMovement()
@@ -2144,14 +2305,21 @@ local function buildPatternPayload()
     local weapon = IsValid(localPlayer) and localPlayer:GetActiveWeapon() or nil
     local fireDelay = IsValid(weapon) and tonumber(weapon.FireDelay) or 0.1
     local captureMode = STATE.captureMode or ((IsValid(weapon) and weapon.dt and weapon.dt.Status == FAS_STAT_ADS) and "ads" or "hip")
+    local sweetSpotDistance = IsValid(weapon) and tonumber(weapon.EffectiveRange) or nil
+    if not sweetSpotDistance or sweetSpotDistance <= 0 then
+        sweetSpotDistance = math.max(tonumber(STATE.wallDist) or 0, EDITOR.RecommendedCalibrationUnits)
+    end
 
     return {
         version = 1,
         weaponClass = STATE.weaponClass,
         points = patternPoints,
         meta = {
+            editorVersion = EDITOR.EditorVersion,
             shotCount = #patternPoints,
+            calibrationDistance = math.Round(STATE.wallDist, 2),
             wallDistance = math.Round(STATE.wallDist, 2),
+            sweetSpotDistance = math.Round(sweetSpotDistance, 2),
             resetDelay = math.max(fireDelay * 2.6, 0.18),
             captureMode = captureMode,
             adsMultiplier = 1,
@@ -2167,6 +2335,7 @@ local function saveReviewedPattern()
     end
 
     EDITOR.Patterns[STATE.weaponClass] = payload
+    EDITOR.InstallNativePattern(STATE.weaponClass, payload, true)
 
     file.CreateDir(EDITOR.DataDir)
     file.Write(EDITOR.DataFile, EDITOR.SerializePatterns())
@@ -2282,6 +2451,7 @@ local function beginPatternReview()
         chatMessage(Color(120, 200, 255), Color(255, 255, 255), string.format("Exact match: %d/%d shots within %.2f deg and %.2fuu.", STATE.testSummary.exactCombinedMatches or 0, STATE.testSummary.compared or 0, STATE.testSummary.angleTolerance or 0, STATE.testSummary.positionTolerance or 0))
     end
     chatMessage(Color(180, 180, 180), Color(255, 255, 255), string.format("Press %s to save, %s to retest, %s to remake the capture, %s to reset to default, %s to discard.", bindLabel("confirm"), bindLabel("test"), bindLabel("restart"), bindLabel("reset"), bindLabel("exit")))
+    chatMessage(Color(180, 180, 180), Color(255, 255, 255), "You can also type !faspattern reset to restore the current weapon's default spray.")
 end
 
 local function beginPatternTest(payload, isRetest)
@@ -2291,6 +2461,11 @@ local function beginPatternTest(payload, isRetest)
     end
 
     STATE.pendingPayload = payload
+    if type(payload.meta) ~= "table" then
+        payload.meta = {}
+    end
+    payload.meta.editorVersion = EDITOR.EditorVersion
+    EDITOR.InstallNativePattern(STATE.weaponClass or payload.weaponClass, payload, true)
     STATE.preTestMode = false
     STATE.reviewMode = false
     STATE.testMode = false
@@ -2319,6 +2494,9 @@ local function resetPatternToDefault()
     end
 
     EDITOR.Patterns[STATE.weaponClass] = nil
+    if FAS2_InstallCS2SprayReset then
+        FAS2_InstallCS2SprayReset(false, STATE.weaponClass)
+    end
     file.CreateDir(EDITOR.DataDir)
     file.Write(EDITOR.DataFile, EDITOR.SerializePatterns())
 
@@ -2326,9 +2504,19 @@ local function resetPatternToDefault()
     net.WriteString(STATE.weaponClass)
     net.SendToServer()
 
-    chatMessage(Color(255, 180, 80), Color(255, 255, 255), "Reset pattern to default for ", STATE.weaponClass, ".")
+    local scalePitch = tonumber(FAS2_CS2PatternScalePitch) or 1
+    local scaleYaw = tonumber(FAS2_CS2PatternScaleYaw) or scalePitch
+    chatMessage(Color(255, 180, 80), Color(255, 255, 255), string.format("Reset %s to tuned default spray (%.1fx pitch / %.1fx yaw).", STATE.weaponClass, scalePitch, scaleYaw))
     RunConsoleCommand("fas2_pattern_editor_exit")
 end
+
+concommand.Add("fas2_pattern_editor_reset_default", function()
+    if not STATE.active then
+        return
+    end
+
+    resetPatternToDefault()
+end)
 
 local function restartPattern()
     STATE.shots = {}
@@ -2621,12 +2809,10 @@ hook.Add("EntityFireBullets", "FAS2PatternEditor.ClientBulletOverride", function
     end
 
     -- During calibration: bullets go exactly where raw eye angles point.
-    -- During test: mirror FA:S 2's real aim line, which includes PunchAngle.
-    if not STATE.preTestMode and not STATE.reviewMode and not STATE.testPending then
+    -- During test, leave bulletData alone so predicted impacts mirror the
+    -- native FA:S spray path we are validating.
+    if not STATE.preTestMode and not STATE.reviewMode and not STATE.testPending and not STATE.testMode then
         local aimAngles = localPlayer:EyeAngles()
-        if STATE.testMode and IsValid(activeWeapon) and isangle(activeWeapon.FAS2PatternTargetAngles) then
-            aimAngles = activeWeapon.FAS2PatternTargetAngles
-        end
 
         bulletData.Dir = aimAngles:Forward()
         bulletData.Spread = vector_origin
@@ -2657,6 +2843,10 @@ hook.Add("Think", "FAS2PatternEditor.Input", function()
         end
 
         if bindPressed("pretest_redo", "restart") then
+            restartPattern()
+        end
+
+        if bindPressed("pretest_refill", "refill") then
             restartPattern()
         end
 
@@ -2702,6 +2892,10 @@ hook.Add("Think", "FAS2PatternEditor.Input", function()
             restartPatternTest()
         end
 
+        if bindPressed("test_refill", "refill") then
+            restartPatternTest()
+        end
+
         if bindPressed("test_finish", "confirm") then
             if #STATE.testShots > 0 then
                 beginPatternReview()
@@ -2740,6 +2934,14 @@ hook.Add("Think", "FAS2PatternEditor.Input", function()
         restartPattern()
     end
 
+    if bindPressed("capture_refill", "refill") then
+        restartPattern()
+    end
+
+    if bindPressed("capture_reset", "reset") then
+        resetPatternToDefault()
+    end
+
     if bindPressed("capture_exit", "exit") then
         exitPaintMode(true)
         RunConsoleCommand("fas2_pattern_editor_exit")
@@ -2748,6 +2950,39 @@ end)
 
 hook.Add("Think", "FAS2PatternEditor.DecalCleanup", function()
     return
+end)
+
+hook.Add("PostDrawTranslucentRenderables", "FAS2PatternEditor.WorldOverlay", function(_, drawingSkybox)
+    if drawingSkybox or not STATE.active or STATE.testMode then
+        return
+    end
+
+    if #STATE.shots < 1 then
+        return
+    end
+
+    render.SetColorMaterial()
+
+    for index, shot in ipairs(STATE.shots) do
+        if not isvector(shot.pos) then
+            continue
+        end
+
+        local frac = index / math.max(STATE.maxShots, 1)
+        local alpha = math.floor(135 * getOverlayFadeAlpha(shot.recordedAt))
+        if alpha <= 0 then
+            continue
+        end
+
+        local color = Color(math.floor(80 + 160 * frac), math.floor(255 - 120 * frac), 80, alpha)
+        local radius = index == 1 and 2.8 or 1.8
+        render.DrawSphere(shot.pos, radius, 10, 10, color)
+
+        local nextShot = STATE.shots[index + 1]
+        if nextShot and isvector(nextShot.pos) then
+            render.DrawLine(shot.pos, nextShot.pos, Color(110, 220, 140, math.floor(alpha * 0.75)), true)
+        end
+    end
 end)
 
 hook.Add("HUDPaint", "FAS2PatternEditor.HUD", function()
@@ -2767,7 +3002,9 @@ hook.Add("HUDPaint", "FAS2PatternEditor.HUD", function()
     local modeLabel = string.upper(STATE.captureMode or ((IsValid(liveWeapon) and liveWeapon.dt and liveWeapon.dt.Status == FAS_STAT_ADS) and "ads" or "hip"))
     local previewDistanceUnits, hasPreviewDistance = getCurrentAimWallDistance(localPlayer)
     local previewDistanceMeters = hasPreviewDistance and EDITOR.UnitsToMeters(previewDistanceUnits) or nil
-    local panelWidth, panelHeight = 420, 72
+    local rangeText, rangeColor = getRangeQuality(STATE.wallDist > 0 and STATE.wallDist or previewDistanceUnits)
+    local fireModeText = IsValid(liveWeapon) and tostring(liveWeapon.FireMode or "?"):upper() or "?"
+    local panelWidth, panelHeight = 520, 78
     local panelX = (screenWidth - panelWidth) * 0.5
     local panelY = 16
     local titleText = "FAS2 LIVE PATTERN CAPTURE"
@@ -2791,13 +3028,14 @@ hook.Add("HUDPaint", "FAS2PatternEditor.HUD", function()
 
     draw.SimpleText(titleText, "DermaDefaultBold", panelX + panelWidth * 0.5, panelY + 14, titleColor, TEXT_ALIGN_CENTER)
     if STATE.testMode or STATE.testPending or STATE.reviewMode then
-        draw.SimpleText(string.format("%s  |  %s REC %d / %d  |  TEST %d / %d", STATE.weaponClass or "", modeLabel, shotCount, STATE.maxShots, testShotCount, STATE.maxShots), "DermaDefault", panelX + panelWidth * 0.5, panelY + 34, Color(255, 255, 255), TEXT_ALIGN_CENTER)
+        draw.SimpleText(string.format("%s  |  %s  |  %s  |  REC %d/%d  TEST %d/%d", STATE.weaponClass or "", modeLabel, fireModeText, shotCount, STATE.maxShots, testShotCount, STATE.maxShots), "DermaDefault", panelX + panelWidth * 0.5, panelY + 34, Color(255, 255, 255), TEXT_ALIGN_CENTER)
     else
-        draw.SimpleText(string.format("%s  |  %s REC  |  %s %d / %d  |  %d left", STATE.weaponClass or "", modeLabel, shotPrefix, shotLabel, STATE.maxShots, shotsLeft), "DermaDefault", panelX + panelWidth * 0.5, panelY + 34, Color(255, 255, 255), TEXT_ALIGN_CENTER)
+        draw.SimpleText(string.format("%s  |  %s  |  %s  |  %s %d/%d  |  %d left", STATE.weaponClass or "", modeLabel, fireModeText, shotPrefix, shotLabel, STATE.maxShots, shotsLeft), "DermaDefault", panelX + panelWidth * 0.5, panelY + 34, Color(255, 255, 255), TEXT_ALIGN_CENTER)
     end
+    draw.SimpleText("RANGE " .. rangeText, "DermaDefaultBold", panelX + panelWidth * 0.5, panelY + 51, rangeColor, TEXT_ALIGN_CENTER)
 
     local barX = panelX + 18
-    local barY = panelY + 54
+    local barY = panelY + 66
     local barWidth = panelWidth - 36
     local barHeight = 8
     local fillWidth = STATE.maxShots > 0 and (displayShotCount / STATE.maxShots) * barWidth or 0
@@ -2811,16 +3049,16 @@ hook.Add("HUDPaint", "FAS2PatternEditor.HUD", function()
     surface.SetDrawColor(12, 12, 12, 185)
     surface.DrawRect(0, footerY, screenWidth, 58)
     if STATE.preTestMode then
-        draw.SimpleText(string.format("%s test pattern   %s remake capture   %s reset default   %s discard", bindLabel("test"), bindLabel("restart"), bindLabel("reset"), bindLabel("exit")), "DermaDefault", screenWidth * 0.5, footerY + 16, Color(220, 220, 220), TEXT_ALIGN_CENTER)
+        draw.SimpleText(string.format("%s test   %s redo   %s refill   %s tuned default   %s exit   , firemode", bindLabel("test"), bindLabel("restart"), bindLabel("refill"), bindLabel("reset"), bindLabel("exit")), "DermaDefault", screenWidth * 0.5, footerY + 16, Color(220, 220, 220), TEXT_ALIGN_CENTER)
     elseif STATE.reviewMode then
-        draw.SimpleText(string.format("%s save   %s retest spray   %s remake capture   %s reset default   %s discard", bindLabel("confirm"), bindLabel("test"), bindLabel("restart"), bindLabel("reset"), bindLabel("exit")), "DermaDefault", screenWidth * 0.5, footerY + 16, Color(220, 220, 220), TEXT_ALIGN_CENTER)
+        draw.SimpleText(string.format("%s save   %s retest   %s redo   %s tuned default   %s exit", bindLabel("confirm"), bindLabel("test"), bindLabel("restart"), bindLabel("reset"), bindLabel("exit")), "DermaDefault", screenWidth * 0.5, footerY + 16, Color(220, 220, 220), TEXT_ALIGN_CENTER)
     elseif STATE.testPending then
         local secondsLeft = math.max(math.ceil((STATE.testCountdownEnd or 0) - CurTime()), 0)
-        draw.SimpleText(string.format("AIM AT CENTER  |  TEST STARTS IN %d  |  %s remake capture  |  %s discard", secondsLeft, bindLabel("restart"), bindLabel("exit")), "DermaDefault", screenWidth * 0.5, footerY + 16, Color(220, 220, 220), TEXT_ALIGN_CENTER)
+        draw.SimpleText(string.format("AIM AT CENTER  |  TEST IN %d  |  %s redo   %s exit", secondsLeft, bindLabel("restart"), bindLabel("exit")), "DermaDefault", screenWidth * 0.5, footerY + 16, Color(220, 220, 220), TEXT_ALIGN_CENTER)
     elseif STATE.testMode then
-        draw.SimpleText(string.format("TEST SPRAY LIVE: %s reload or retest   %s review   %s remake capture   %s discard", bindLabel("test"), bindLabel("confirm"), bindLabel("restart"), bindLabel("exit")), "DermaDefault", screenWidth * 0.5, footerY + 16, Color(220, 220, 220), TEXT_ALIGN_CENTER)
+        draw.SimpleText(string.format("TEST LIVE: %s retest   %s review   %s redo   %s refill   %s exit", bindLabel("test"), bindLabel("confirm"), bindLabel("restart"), bindLabel("refill"), bindLabel("exit")), "DermaDefault", screenWidth * 0.5, footerY + 16, Color(220, 220, 220), TEXT_ALIGN_CENTER)
     else
-        draw.SimpleText(string.format("LASER CALIBRATION: spray or tap points manually   %s restart or refill   %s exit", bindLabel("restart"), bindLabel("exit")), "DermaDefault", screenWidth * 0.5, footerY + 16, Color(220, 220, 220), TEXT_ALIGN_CENTER)
+        draw.SimpleText(string.format("CAPTURE: tap shots   %s redo   %s refill   %s tuned default   %s exit   , firemode", bindLabel("restart"), bindLabel("refill"), bindLabel("reset"), bindLabel("exit")), "DermaDefault", screenWidth * 0.5, footerY + 16, Color(220, 220, 220), TEXT_ALIGN_CENTER)
     end
 
     if STATE.preTestMode then
@@ -2841,11 +3079,11 @@ hook.Add("HUDPaint", "FAS2PatternEditor.HUD", function()
             draw.SimpleText(string.format("Overlay hidden. Finish the spray, press %s to reload or retest, or %s to go to review.", bindLabel("test"), bindLabel("confirm")), "DermaDefault", screenWidth * 0.5, footerY + 35, Color(140, 190, 255), TEXT_ALIGN_CENTER)
         end
     elseif STATE.wallDist > 0 then
-        draw.SimpleText(string.format("Laser calibration active. Viewmodel visible, zero recoil, zero spread, dead-straight shots. Move only your mouse to define the spray. Wall distance: %.0f units", STATE.wallDist), "DermaDefault", screenWidth * 0.5, footerY + 35, Color(140, 190, 255), TEXT_ALIGN_CENTER)
+        draw.SimpleText(string.format("Calibration locked at %.1fm. Shoot one point per tap; saved sweet spot stays weapon-based, not wall-distance based.", EDITOR.UnitsToMeters(STATE.wallDist)), "DermaDefault", screenWidth * 0.5, footerY + 35, Color(140, 190, 255), TEXT_ALIGN_CENTER)
     elseif hasPreviewDistance then
-        draw.SimpleText(string.format("Current aim distance: %.0f units / %.1fm. Fire shot 1 to lock this calibration distance.", previewDistanceUnits, previewDistanceMeters or 0), "DermaDefault", screenWidth * 0.5, footerY + 35, Color(140, 190, 255), TEXT_ALIGN_CENTER)
+        draw.SimpleText(string.format("Face a flat wall around 20-35m. Current %.1fm. Fire shot 1 to lock capture distance.", previewDistanceMeters or 0), "DermaDefault", screenWidth * 0.5, footerY + 35, Color(140, 190, 255), TEXT_ALIGN_CENTER)
     else
-        draw.SimpleText("Face a flat wall to preview the distance, then fire shot 1 as the center reference point", "DermaDefault", screenWidth * 0.5, footerY + 35, Color(140, 190, 255), TEXT_ALIGN_CENTER)
+        draw.SimpleText(string.format("Face a flat wall around 20-35m, then fire shot 1 as CENTER. %s restores default.", bindLabel("reset")), "DermaDefault", screenWidth * 0.5, footerY + 35, Color(140, 190, 255), TEXT_ALIGN_CENTER)
     end
 
     local showFullPattern = not STATE.testMode
