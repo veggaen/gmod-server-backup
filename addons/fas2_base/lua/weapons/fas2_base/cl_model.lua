@@ -12,6 +12,7 @@ SWEP.PSO1Glass = Material("models/weapons/view/accessories/Lens_EnvSolid")
 SWEP.ScopeRT = GetRenderTarget("fas2_scope_rt", 512, 512, false)
 SWEP.AngleDelta2 = Angle(0, 0, 0)
 
+CreateClientConVar("fas2_viewmodel_roll_enable", "0", true, false)
 local math, draw, surface, cam, render = math, draw, surface, cam, render -- local look-ups are faster than global look-ups, saves a couple of milliseconds, M-MUH PERFORMANCE
 local ps2 = render.SupportsPixelShaders_2_0()
 
@@ -145,6 +146,17 @@ function SWEP:PostDrawViewModel()
 	AngleTable.p = EA.P
 	AngleTable.y = EA.Y
 	delta = AngleTable - self.OldDelta
+
+	-- ADS aim-snap rotates EyeAngles automatically so bullets and ironsights
+	-- stay aligned through hip/ADS transitions. Do not feed that synthetic
+	-- rotation into weapon sway, or the model looks like it is bumping over
+	-- every tiny correction step.
+	if (self._adsSnapViewDeltaP or 0) ~= 0 or (self._adsSnapViewDeltaY or 0) ~= 0 then
+		delta.p = delta.p - (self._adsSnapViewDeltaP or 0)
+		delta.y = delta.y - (self._adsSnapViewDeltaY or 0)
+		self._adsSnapViewDeltaP = 0
+		self._adsSnapViewDeltaY = 0
+	end
 		
 	self.OldDelta.p = EA.p
 	self.OldDelta.y = EA.y
